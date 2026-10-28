@@ -80,6 +80,11 @@ type Model struct {
 	// Fast is set on a model Codex may ask for priority processing (its
 	// Fast mode): one a ChatGPT account serves.
 	Fast bool `json:",omitempty"`
+	// AgentsV1 is set on an OpenAI-shaped model the cross-model subagent
+	// setting may tell Codex to run as multi-agent V1, alone or through a
+	// routing group: a V2 task its server seals is one another provider
+	// can't open.
+	AgentsV1 bool `json:",omitempty"`
 	// Tiers, in one ChatGPT account's own model list, are the service
 	// tiers its plan offers on the model ("priority", "ultrafast"); in
 	// another magpie's, the tiers it offers its Codex on the model

@@ -743,7 +743,9 @@ func CodexTiers(m *catalog.Model, e Entry, members func(id string) []Member) {
 	}
 	if e.Group != "" {
 		fast := false
+		v1 := false
 		for _, mb := range members(e.ID) {
+			v1 = v1 || agentsV1(mb.Provider, mb.Model)
 			if a := mb.Provider.Account; a != nil && a.Agent == "codex" && strings.HasPrefix(mb.Model, "gpt-") {
 				m.Fast = true
 				break
@@ -759,8 +761,10 @@ func CodexTiers(m *catalog.Model, e Entry, members func(id string) []Member) {
 		if !m.Fast && fast {
 			m.Tiers = []string{codexFastTier}
 		}
+		m.AgentsV1 = v1
 		return
 	}
+	m.AgentsV1 = agentsV1(e.Provider, e.Model)
 	// so is a model of its own that has one, which no tier above names
 	// (an Anthropic key's Opus, an OpenAI key's GPT, a Cursor account's)
 	if len(m.Tiers) == 0 && CanFast(e.Provider, e.Model) {

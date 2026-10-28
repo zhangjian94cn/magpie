@@ -1638,6 +1638,20 @@ func claudeModel(model string) bool {
 // vendor prefix, is one of Anthropic's Claude models by its name.
 func ClaudeModel(model string) bool { return claudeModel(model) }
 
+// agentsV1 says whether the cross-model subagent setting can tell Codex to
+// run model as multi-agent V1 at p. A Responses endpoint may relay to
+// OpenAI's service, which seals V2 tasks; another vendor's account
+// (Copilot's Ultra, say) keeps its own multi-agent policy.
+func agentsV1(p Provider, model string) bool {
+	if !openAIModel(model) {
+		return false
+	}
+	if p.Account == nil {
+		return p.Responses != ""
+	}
+	return p.Account.Agent == "codex" || p.Account.Agent == ChatGPTAPIID
+}
+
 // openAIModel is whether model is one of OpenAI's own by its name: a GPT,
 // a Codex or an o-series model, after any vendor prefix.
 func openAIModel(model string) bool {

@@ -30,8 +30,9 @@ func TestEntriesCarryContextWindow(t *testing.T) {
 func TestETagTag(t *testing.T) {
 	a := Tag([]catalog.Model{{ID: "p/m1"}})
 	b := Tag([]catalog.Model{{ID: "p/m1"}, {ID: "q/m2"}})
-	if a == b || a != Tag([]catalog.Model{{ID: "p/m1"}}) {
-		t.Fatalf("tags %q %q", a, b)
+	agentsV1 := Tag([]catalog.Model{{ID: "p/m1", AgentsV1: true}})
+	if a == b || a == agentsV1 || a != Tag([]catalog.Model{{ID: "p/m1"}}) {
+		t.Fatalf("tags %q %q %q", a, b, agentsV1)
 	}
 	for etag, want := range map[string]string{
 		`W/"abc"`: `W/"abc+magpie-` + a + `"`,

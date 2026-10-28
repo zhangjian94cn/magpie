@@ -1,8 +1,12 @@
 package provider
 
 import (
+	"encoding/json"
 	"maps"
 	"testing"
+
+	"github.com/yetone/magpie/internal/codexcat"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // Vendors spell the same model differently; a group magpie finds joins
@@ -101,5 +105,55 @@ func TestCodexListedKeepsGroups(t *testing.T) {
 	// Codex offers /fast on the group, a ChatGPT GPT model being in it
 	if !ms[0].Fast || ms[1].Fast {
 		t.Errorf("fast: group %v, model %v", ms[0].Fast, ms[1].Fast)
+	}
+	if !ms[0].AgentsV1 {
+		t.Errorf("agents V1 marker: group %v", ms[0].AgentsV1)
+	}
+}
+
+// The V1 setting has to reach a relay's GPT group too: its lead can seal a
+// V2 subagent's task just as a ChatGPT account's does. Copilot's GPT keeps
+// Ultra's V2, which that vendor's own policy asks for (#656, #2245).
+func TestCodexListedRunsARelayGPTGroupAsV1(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	s := settings.Load()
+	s.CodexAgentsV1 = true
+	if err := settings.Save(s); err != nil {
+		t.Fatal(err)
+	}
+
+	ultra := []string{"low", "high", "max", "ultra"}
+	relay := Provider{ID: "relay", Responses: "https://example.invalid/v1"}
+	copilot := Provider{ID: "copilot", Account: &Account{Agent: "copilot"}}
+	ms := codexListed([]Entry{
+		{ID: GroupPrefix + "smart", Model: "glm-5.3", Efforts: ultra, AgentsV2: true, Provider: relay, Group: "smart"},
+		{ID: "relay/gpt-6-sol", Model: "gpt-6-sol", Efforts: ultra, AgentsV2: true, Provider: relay},
+		{ID: "relay/gpt-6-astra", Model: "gpt-6-astra", Efforts: ultra, Provider: relay,
+			Codex: json.RawMessage(`{"slug":"gpt-6-astra","base_instructions":"keep","multi_agent_version":"v2"}`)},
+		{ID: "copilot/gpt-6.1-sol", Model: "gpt-6.1-sol", Efforts: ultra, AgentsV2: true, Provider: copilot},
+		{ID: "or/claude-opus", Model: "claude-opus", Provider: Provider{ID: "or"}},
+	}, func(id string) []Member {
+		return []Member{{ID: GroupPrefix + "gpt", Path: []string{GroupPrefix + "gpt", "relay/gpt-6-sol"}, Provider: relay, Model: "gpt-6-sol"}}
+	}, false)
+
+	var got struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.Unmarshal(codexcat.Catalog(ms), &got); err != nil {
+		t.Fatal(err)
+	}
+	versions := map[string]any{}
+	for _, m := range got.Models {
+		versions[m["slug"].(string)] = m["multi_agent_version"]
+		if m["slug"] == "relay/gpt-6-astra" && m["base_instructions"] != "keep" {
+			t.Fatalf("relay's listed entry was lost: %v", m)
+		}
+	}
+	if versions[GroupPrefix+"smart"] != "v1" || versions["relay/gpt-6-sol"] != "v1" ||
+		versions["relay/gpt-6-astra"] != "v1" || versions["copilot/gpt-6.1-sol"] != "v2" ||
+		versions["or/claude-opus"] != nil {
+		t.Fatalf("multi-agent versions: %v", versions)
 	}
 }

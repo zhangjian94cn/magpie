@@ -46,26 +46,30 @@ func versions(t *testing.T, ms []catalog.Model) map[string]any {
 }
 
 // With settings.CodexAgentsV1 the OpenAI models magpie hands Codex — the
-// ChatGPT account's own under codex/, and the groups one is in — say
-// multi-agent V1 (#141); a third-party model's entry says nothing, and with
-// the setting off nothing does.
+// ChatGPT account's own under codex/, and one a custom Responses provider
+// serves, alone or through a routing group — say multi-agent V1 (#141,
+// #2245): the server answering such a lead seals a V2 task another provider
+// can't open. Another model's entry says nothing, and with the setting off
+// nothing does.
 func TestCodexAgentsV1Entries(t *testing.T) {
 	v1Home(t, `{"etag":"W/\"a\"","models":[{"slug":"gpt-6","multi_agent_version":"v2","base_instructions":"x"}]}`)
 	ms := []catalog.Model{
 		{ID: "codex/gpt-6", Name: "GPT-6 · Codex"},
 		{ID: "codex/gpt-9", Name: "GPT-9 · Codex"},
-		{ID: "group/smart", Name: "smart", Fast: true},
+		{ID: "relay/gpt-6-sol", Name: "Sol", AgentsV1: true, AgentsV2: true},
+		{ID: "copilot/gpt-6.1-sol", Name: "Sol", AgentsV2: true},
+		{ID: "group/smart", Name: "smart", AgentsV1: true, AgentsV2: true},
 		{ID: "anthropic/claude-opus", Name: "Opus"},
 	}
 	off := versions(t, ms)
-	if off["codex/gpt-6"] != "v2" || off["codex/gpt-9"] != nil || off["group/smart"] != nil || off["anthropic/claude-opus"] != nil {
+	if off["codex/gpt-6"] != "v2" || off["codex/gpt-9"] != nil || off["relay/gpt-6-sol"] != "v2" || off["copilot/gpt-6.1-sol"] != "v2" || off["group/smart"] != "v2" || off["anthropic/claude-opus"] != nil {
 		t.Fatalf("off: %v", off)
 	}
 	tagOff := PolicyTag(Tag(ms))
 
 	setV1(t, true)
 	on := versions(t, ms)
-	if on["codex/gpt-6"] != "v1" || on["codex/gpt-9"] != "v1" || on["group/smart"] != "v1" || on["anthropic/claude-opus"] != nil {
+	if on["codex/gpt-6"] != "v1" || on["codex/gpt-9"] != "v1" || on["relay/gpt-6-sol"] != "v1" || on["copilot/gpt-6.1-sol"] != "v2" || on["group/smart"] != "v1" || on["anthropic/claude-opus"] != nil {
 		t.Fatalf("on: %v", on)
 	}
 	tagOn := PolicyTag(Tag(ms))
