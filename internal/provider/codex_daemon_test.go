@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -196,103 +195,21 @@ func fakeCodex(t *testing.T, exit int) (out string) {
 
 func TestRestartCodexDaemon(t *testing.T) {
 	pid := fakeDaemon(t)
-	t.Setenv("CODEX_HOME", "/somewhere/else")
 	out := fakeCodex(t, 0)
-	t.Setenv("HTTPS_PROXY", "")
-	daemonLoginEnv = func(k string) string {
-		if k == "HTTPS_PROXY" {
-			return "http://127.0.0.1:7890"
-		}
-		return ""
-	}
 	*pid = 50
 	noteCodexSwitch("a@x", "b@x")
-	if err := RestartCodexDaemon(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := RestartCodexDaemon(context.Background()); !errors.Is(err, errCodexRefreshRequired) {
+		t.Fatalf("restart must explicitly be refused: %v", err)
 	}
-	read := func(ext string) string {
-		b, _ := os.ReadFile(out + ext)
-		return strings.TrimSpace(string(b))
-	}
-	if got := read(".args"); got != "app-server daemon restart" {
-		t.Errorf("args %q", got)
-	}
-	// the daemon of the CODEX_HOME magpie writes auth.json in, which is the
-	// user's own CODEX_HOME when that is set
-	if got, want := read(".home"), "/somewhere/else"; got != want || filepath.Clean(got) != filepath.Dir(codexAuthPath()) {
-		t.Errorf("CODEX_HOME %q, want %q (where magpie writes auth.json)", got, want)
-	}
-	// the proxy a terminal has, which magpie opened from the desktop hasn't
-	if got := read(".proxy"); got != "http://127.0.0.1:7890" {
-		t.Errorf("HTTPS_PROXY %q, want the login shell's", got)
-	}
-	if got := read(".stdin"); got != "other" {
-		t.Errorf("stdin is a %s, want the null device", got)
-	}
-	codexDaemonMu.Lock()
-	left := codexDaemonLeft
-	codexDaemonMu.Unlock()
-	if left != (leftDaemon{}) {
-		t.Errorf("still noted after a restart: %+v", left)
-	}
-}
-
-func TestRestartCodexDaemonFails(t *testing.T) {
-	pid := fakeDaemon(t)
-	fakeCodex(t, 2)
-	*pid = 50
-	noteCodexSwitch("a@x", "b@x")
-	err := RestartCodexDaemon(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "stale or unreachable") {
-		t.Fatalf("err %v", err)
+	if _, err := os.Stat(out + ".args"); !os.IsNotExist(err) {
+		t.Fatalf("executed Codex: %v", err)
 	}
 	if got := CodexDaemonStale(); got != "a@x" {
-		t.Fatalf("a failed restart forgot the daemon: %q", got)
+		t.Fatalf("refused restart forgot pending account: %q", got)
 	}
 	codexExecutable = func() string { return "" }
-	if err := RestartCodexDaemon(context.Background()); err == nil {
-		t.Fatal("no codex: no error")
-	}
-}
-
-// The daemon a restart leaves running answers for itself to macOS's
-// privacy prompts, not to magpie: every codex attached to it works in its
-// own folder, and the first one in ~/Desktop had macOS say magpie wants
-// the Desktop folder (reformed9448 on Discord).
-func TestRestartedCodexDaemonIsNotMagpies(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("macOS's responsibility for a process")
-	}
-	self := proc.Responsible(os.Getpid())
-	if self == 0 {
-		t.Skip("macOS doesn't say who is responsible for this process")
-	}
-	fakeCodex(t, 0)
-	// a codex whose restart leaves a daemon (a sleep) running, and says
-	// its pid
-	dir := t.TempDir()
-	left := filepath.Join(dir, "daemon.pid")
-	exe := filepath.Join(dir, "codex")
-	testenv.Program(t, exe, "#!/bin/sh\nsleep 30 >/dev/null 2>&1 </dev/null &\necho $! > '"+left+"'\n")
-	codexExecutable = func() string { return exe }
-	if err := RestartCodexDaemon(context.Background()); err != nil {
+	if err := RestartCodexDaemon(context.Background()); !errors.Is(err, errCodexRefreshRequired) {
 		t.Fatal(err)
-	}
-	b, err := os.ReadFile(left)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-	if err != nil {
-		t.Fatalf("pid %q", b)
-	}
-	t.Cleanup(func() {
-		if p, err := os.FindProcess(pid); err == nil {
-			p.Kill()
-		}
-	})
-	if got := proc.Responsible(pid); got == 0 || got == self {
-		t.Fatalf("the daemon answers to %d, magpie to %d: want one of its own", got, self)
 	}
 }
 
@@ -372,8 +289,8 @@ func writeDaemonPID(t *testing.T, home, body string, at time.Time) string {
 
 // luci (Discord, Codex 0.162): the daemon codex sessions attach to was
 // started on Codex's own models; wired to magpie after, every new codex
-// showed the official list. magpie restarts a daemon started before the
-// change while no codex session is on it, and only then.
+// showed the official list. A daemon started before the change remains
+// pending refresh whether or not sessions are attached.
 func TestKeepCodexDaemonCurrent(t *testing.T) {
 	pid := fakeDaemon(t)
 	out := fakeCodex(t, 0)
@@ -400,13 +317,10 @@ func TestKeepCodexDaemonCurrent(t *testing.T) {
 	*pid = 50
 	pidFile := writeDaemonPID(t, home, `{"pid":50,"processStartTime":"x"}`, started)
 
-	// started before the change, no session on it: restarted, in home
+	// No attached session is not permission to restart Codex.
 	c := KeepCodexDaemonCurrent(ctx, home, time.Now())
-	if !c.Behind || !c.Restarted || c.Err != nil || !ran() {
+	if !c.Behind || c.Restarted || c.Err != nil || ran() {
 		t.Fatalf("idle daemon behind: %+v", c)
-	}
-	if b, _ := os.ReadFile(out + ".home"); strings.TrimSpace(string(b)) != home {
-		t.Errorf("CODEX_HOME %q, want %q", b, home)
 	}
 	// a codex session on it: said, left to the user
 	clients = 1
@@ -475,8 +389,8 @@ func TestKeepCodexDaemonCurrentListsOnlyWhenBehind(t *testing.T) {
 	}
 }
 
-// A failed restart is said, not taken for one done.
-func TestKeepCodexDaemonCurrentFails(t *testing.T) {
+// A missing Codex executable does not turn observation into a restart attempt.
+func TestKeepCodexDaemonCurrentDoesNotAttemptRestart(t *testing.T) {
 	pid := fakeDaemon(t)
 	fakeCodex(t, 2)
 	home, _ := os.UserHomeDir()
@@ -484,7 +398,7 @@ func TestKeepCodexDaemonCurrentFails(t *testing.T) {
 	*pid = 50
 	writeDaemonPID(t, home, "50", time.Now().Add(-time.Hour))
 	c := KeepCodexDaemonCurrent(context.Background(), home, time.Now())
-	if !c.Behind || c.Restarted || c.Err == nil {
+	if !c.Behind || c.Restarted || c.Err != nil {
 		t.Fatalf("%+v", c)
 	}
 }

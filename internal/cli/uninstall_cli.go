@@ -117,7 +117,7 @@ func uninstallCmd(args []string) error {
 		}
 	}
 	if r.CodexApp {
-		fmt.Println(amber.Render("!"), "the Codex app is still on what it read before: quit it and open it again")
+		fmt.Println(amber.Render("!"), "Codex refresh is pending: finish all Codex tasks, then quit and open it yourself; magpie did not restart it")
 	}
 	// install.sh --uninstall deletes magpie itself after this (a
 	// downloaded copy too) and says so, so the lines about it are its own.

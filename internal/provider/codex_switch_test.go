@@ -62,7 +62,7 @@ func TestCodexSwitchedWhenUsedUp(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		codexApp.Lock()
-		codexApp.switched, codexApp.spent = false, false
+		codexApp.switched = false
 		codexApp.Unlock()
 	})
 	// the sign-ins above were the user's switches, as if taken already
@@ -72,13 +72,12 @@ func TestCodexSwitchedWhenUsedUp(t *testing.T) {
 	if to := switched(); to != "spare@example.com" {
 		t.Fatalf("switched to %q", to)
 	}
-	// the Codex app's app-server is restarted past a turn left stuck on
-	// the account used up (TestCodexAppServerRestartedPastATurnStuckOnTheSpentAccount)
+	// The account switch leaves the old app-server pending refresh.
 	codexApp.Lock()
-	spent := codexApp.spent
+	pending := codexApp.switched
 	codexApp.Unlock()
-	if !spent {
-		t.Fatal("the switch off a used-up account isn't marked spent for the Codex app")
+	if !pending {
+		t.Fatal("the account switch isn't pending refresh for the Codex app")
 	}
 	// it is magpie's own: the Codex app is left running unless the user
 	// asked magpie to restart it (RestartApp; atom0964 on Discord)

@@ -2788,10 +2788,8 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 	mux.HandleFunc("GET /api/claude/mode", func(rw http.ResponseWriter, r *http.Request) {
 		writeJSON(rw, gateway.ClaudeModeNow())
 	})
-	// Codex's background app-server, left on the account before a switch
-	// or on the model list before a change (the Agents row's Restart):
-	// restarting it (Codex 0.162's sessions on it reconnect, after a turn
-	// running, for up to a minute; an older Codex's end), or letting it be.
+	// Legacy restart clients receive the existing error shape. Dismissals
+	// only acknowledge the notice; they never restart Codex.
 	mux.HandleFunc("POST /api/codex/daemon/{action}", func(rw http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("action") {
 		case "restart":
@@ -2801,14 +2799,12 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 				fail(rw, err)
 				return
 			}
-			agent.CodexDaemonRestarted()
 		case "dismiss":
 			provider.DismissCodexDaemon()
 		case "dismiss-app":
 			provider.DismissCodexApp()
 		case "restart-app":
-			// the Codex app left on the account before: its app-server
-			// restarted now, after the user said yes (nb5p_hQ on X)
+			// Old clients get pending refresh, without a lifecycle action.
 			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 			defer cancel()
 			if err := agent.RestartSwitchedCodexApp(ctx); err != nil {
@@ -2821,8 +2817,7 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 		}
 		writeProvidersJSON(rw, providersState())
 	})
-	// The Codex desktop app left on the model list before a change (the
-	// Agents row's Restart): quit it and open it again.
+	// The old desktop restart endpoint also refuses to change its lifecycle.
 	mux.HandleFunc("POST /api/codex/app/reopen", func(rw http.ResponseWriter, r *http.Request) {
 		var in struct{ Bundle string }
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
