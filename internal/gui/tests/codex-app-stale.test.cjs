@@ -4,9 +4,8 @@
 // limits and, once they are spent, sends in no thread (CavillZhang on X).
 // Codex's accounts say so, with the account the app is on and what moves it
 // (quit and open it again), until the app reopens or "Got it" is clicked.
-// Its Restart (nb5p_hQ on X) asks first in magpie's own dialog, then has
-// magpie restart the app's app-server; one that fails says why in the
-// reader's language. In every language, Chromium and WebKit, wide and narrow.
+// Its refresh button explains the user action and sends no restart request.
+// In every language, Chromium and WebKit, wide and narrow.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const path = require("node:path");
@@ -26,9 +25,7 @@ const codex = {
   },
 };
 
-const notBack = "The Codex app's app-server ended, but the app didn't start another. Quit the app and open it again.";
-
-function serve(lang, posted, fail) {
+function serve(lang, posted) {
   let app = "spent@example.com";
   const providers = () => ({ providers: [codex], presets: [], excluded: [], gateway: { running: true, window: true }, ...(app ? { codexApp: app } : {}) });
   const state = { agents: [], profiles: [], settings: { lang, theme: "light" } };
@@ -40,12 +37,6 @@ function serve(lang, posted, fail) {
     if (url.pathname === "/api/state") return json(state);
     if (url.pathname === "/api/providers") return json(providers());
     if (url.pathname === "/api/codex/daemon/dismiss-app") { posted.push(url.pathname); app = ""; return json(providers()); }
-    if (url.pathname === "/api/codex/daemon/restart-app") {
-      posted.push(url.pathname);
-      if (fail) return route.fulfill({ status: 500, json: { error: notBack } });
-      app = "";
-      return json(providers());
-    }
     if (url.pathname === "/api/groups") return json({ groups: [] });
     if (url.pathname === "/api/plugins") return json({ plugins: [] });
     if (url.pathname.startsWith("/api/")) return json({});
@@ -57,14 +48,9 @@ function serve(lang, posted, fail) {
 
 const keys = [
   "The Codex app is still signed in as {user}",
-  "It shows that account's usage limits until it is quit and opened again. Quit it and open it again to use the new account.",
+  "Finish all Codex tasks, then quit and reopen the Codex app yourself. magpie did not restart it.",
   "Got it",
-  "Restart",
-  "Restart {agent}?",
-  "The Codex app",
-  "Its app-server restarts and signs in to the new account; its window stays. A running turn stops.",
-  "Codex app-server restarted",
-  "The {agent} app's app-server ended, but the app didn't start another. Quit the app and open it again.",
+  "Refresh instructions",
 ];
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -84,11 +70,11 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await box.waitFor();
         const text = await box.textContent();
         assert.match(text, /spent@example\.com/);
-        if (lang === "en") assert.match(text, /Quit it and open it again/);
+        if (lang === "en") assert.match(text, /Finish all Codex tasks/);
         else {
           const missing = await page.evaluate(([l, ks]) => ks.filter((k) => !I18N[l][k]), [lang, keys]);
           assert.deepEqual(missing, [], `every string has its ${lang}`);
-          assert.doesNotMatch(text, /Quit it and open it again/);
+          assert.doesNotMatch(text, /Finish all Codex tasks/);
         }
         const fits = await box.evaluate((b) => [...b.querySelectorAll("*")].every((e) => e.getBoundingClientRect().right <= b.getBoundingClientRect().right + 0.5));
         assert.ok(fits, "nothing in the notice runs past it");
@@ -103,7 +89,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         assert.deepEqual(errors, []);
       });
 
-      test(`${engine} ${lang} ${width}px: Restart asks first, then restarts the Codex app's app-server`, async (t) => {
+      test(`${engine} ${lang} ${width}px: Refresh instructions preserve the pending account without a request`, async (t) => {
         const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
         t.after(() => browser.close());
         const page = await (await browser.newContext({ viewport: { width, height: 760 }, reducedMotion: "reduce" })).newPage();
@@ -116,48 +102,17 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         const box = page.locator(".editor .signing.daemon");
         await box.waitFor();
         const go = box.locator("button.primary");
-        assert.equal((await go.textContent()).trim(), await page.evaluate((l) => (l === "en" ? "Restart" : I18N[l].Restart), lang));
-        const ask = page.locator("dialog.action-confirm[open]");
+        assert.equal((await go.textContent()).trim(), await page.evaluate((l) => (l === "en" ? "Refresh instructions" : I18N[l]["Refresh instructions"]), lang));
         await go.click();
-        await ask.waitFor();
-        assert.doesNotMatch(await ask.textContent(), /\{\w+\}/);
-        const dlg = await ask.boundingBox();
-        assert.ok(dlg.x >= 0 && dlg.x + dlg.width <= width, "the dialog past the window");
-        await page.keyboard.press("Escape");
-        await ask.waitFor({ state: "detached" });
-        assert.deepEqual(posted, [], "Escape restarts nothing");
-        await go.click();
-        await ask.locator("button.primary").click();
-        await box.waitFor({ state: "detached" });
-        assert.deepEqual(posted, ["/api/codex/daemon/restart-app"]);
+        assert.equal(await page.locator("dialog[open]").count(), 0);
+        const said = await page.locator("#status").textContent();
+        assert.ok(said.includes("Codex") && said.includes("magpie"), said);
+        assert.doesNotMatch(said, /\{\w+\}/);
+        assert.deepEqual(posted, []);
+        assert.equal(await box.count(), 1, "instructions leave pending refresh visible");
         assert.deepEqual(errors, []);
       });
     }
 
-    test(`${engine} ${lang}: a Restart that fails says why, in the reader's language`, async (t) => {
-      const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
-      t.after(() => browser.close());
-      const page = await (await browser.newContext({ viewport: { width: 900, height: 760 }, reducedMotion: "reduce" })).newPage();
-      page.setDefaultTimeout(5000);
-      const errors = [], posted = [];
-      page.on("pageerror", (e) => errors.push(e.message));
-      await page.route("**/*", serve(lang, posted, true));
-      await page.goto("http://magpie.test/?view=providers");
-      await page.locator(".row.provider", { hasText: "Codex" }).first().click();
-      const box = page.locator(".editor .signing.daemon");
-      await box.waitFor();
-      await box.locator("button.primary").click();
-      await page.locator("dialog.action-confirm[open] button.primary").click();
-      const said = page.locator(".editor .editor-error");
-      await said.waitFor();
-      const text = (await said.textContent()).trim();
-      assert.ok(text.includes("Codex"), text);
-      if (lang === "en") assert.ok(text.includes(notBack), text);
-      else assert.ok(!text.includes(notBack), "not translated: " + text);
-      assert.equal(await box.count(), 1, "the notice stays for another try");
-      assert.equal(await box.locator("button.primary.busy").count(), 0, "not left spinning");
-      assert.deepEqual(posted, ["/api/codex/daemon/restart-app"]);
-      assert.deepEqual(errors, []);
-    });
   }
 }

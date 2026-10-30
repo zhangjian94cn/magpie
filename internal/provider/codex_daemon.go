@@ -5,9 +5,8 @@ package provider
 // started by the CLI and left running — and it reads the ChatGPT sign-in
 // once, when it starts. So when magpie switches the account Codex is signed
 // in to, a Codex session opened after that still runs on the account before
-// until the daemon is restarted. magpie doesn't restart it on its own:
-// that ends the sessions running on it. It says so instead, and restarts it
-// when asked (RestartCodexDaemon).
+// until the daemon is restarted from Codex. magpie only reports pending
+// refresh; its legacy restart interface also refuses to restart it.
 //
 // The daemon is told apart by --managed-daemon: the app-servers other apps
 // run for themselves (the ChatGPT app's own codex, an editor's) are started
@@ -167,8 +166,7 @@ const codexDaemonRecheck = 5 * time.Second
 func noteCodexSwitch(from, to string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// the Codex app's app-servers are found and restarted on
-	// KeepCodexAppOnItsProvider's own look, whatever this listing finds
+	// The app watcher observes pending refresh independently of this listing.
 	codexAppAccountSwitched()
 	ps, err := listProcesses(ctx)
 	known := err == nil
@@ -239,7 +237,7 @@ func recheckLeft() {
 		codexDaemonLeft = leftDaemon{}
 	}
 	// one that went with none in its place left an app still on nothing
-	// new while it runs (codexAppGotNone): the app read no sign-in
+	// new while it runs: the app read no sign-in
 	// afresh, so it is still said
 	if p := findCodexApp(ps); p != codexAppLeft.pid && (p != 0 || !codexAppStillOpen()) {
 		codexAppLeft = leftDaemon{}
@@ -319,37 +317,13 @@ func windowsCodexApp(exe string) bool {
 	return strings.Contains(e, `\appdata\local\openai\codex\bin\`) || strings.Contains(e, `\windowsapps\openai.`)
 }
 
-// RestartCodexDaemon has Codex restart its app-server, which reads the
-// sign-in again: `codex app-server daemon restart`, run with the codex CLI
-// magpie finds and the Codex home it signs Codex in through. Codex 0.162's
-// sessions attached to it reconnect to the new one, a turn running is let
-// finish first (for up to a minute); an older Codex's are ended.
+// RestartCodexDaemon retains the old interface but delegates refresh to Codex.
 func RestartCodexDaemon(ctx context.Context) error {
-	codexRestarting.Lock()
-	defer codexRestarting.Unlock()
-	if err := restartCodexDaemon(ctx, codexHome()); err != nil {
-		return err
-	}
-	DismissCodexDaemon()
-	return nil
+	return restartCodexDaemon(ctx, codexHome())
 }
 
-func restartCodexDaemon(ctx context.Context, home string) error {
-	cmd, err := codexDaemonCommand(ctx, home, "restart")
-	if err != nil {
-		return err
-	}
-	// run as its own responsible process: the daemon it leaves running
-	// works in the folder of every codex attached to it, and macOS would
-	// otherwise ask for ~/Desktop and the like in magpie's name
-	// (reformed9448 on Discord)
-	if out, err := proc.CombinedOutputOwn(ctx, cmd); err != nil {
-		if msg := lastLine(out); msg != "" {
-			return errors.New("codex app-server daemon restart: " + msg)
-		}
-		return errors.New("codex app-server daemon restart: " + err.Error())
-	}
-	return nil
+func restartCodexDaemon(context.Context, string) error {
+	return errCodexRefreshRequired
 }
 
 // codexDaemonCommand is `codex app-server daemon <verb>`, with CODEX_HOME
@@ -420,9 +394,8 @@ func codexDaemonEnv(env []string) []string {
 // it out, attaches to the daemon left running and shows the list from
 // before — Codex's own models, or magpie's — until it restarts (luci on
 // Discord, Codex 0.162). It runs per CODEX_HOME, not per terminal, and
-// has no idle exit. Restarting it with no codex session attached ends
-// nothing, so magpie does that itself (KeepCodexDaemonCurrent); with one
-// attached, the Agents page offers it.
+// has no idle exit. KeepCodexDaemonCurrent reports pending refresh; Codex
+// owns the restart even when no attached session was observed.
 
 // A CodexDaemonCheck is what KeepCodexDaemonCurrent found and did.
 type CodexDaemonCheck struct {
@@ -438,13 +411,8 @@ type CodexDaemonCheck struct {
 	Err       error
 }
 
-// codexRestarting keeps one restart of the daemon at a time.
-var codexRestarting sync.Mutex
-
-// KeepCodexDaemonCurrent restarts the managed app-server of the Codex home
-// home when it started before changed (when magpie last changed what Codex
-// reads at start) and no codex session is attached to it. One that can't
-// be found or timed, or a restart already under way, is left as it is.
+// KeepCodexDaemonCurrent reports a daemon that has not read changed settings.
+// Attached counts are diagnostic and never authorize a restart.
 func KeepCodexDaemonCurrent(ctx context.Context, home string, changed time.Time) CodexDaemonCheck {
 	var c CodexDaemonCheck
 	if changed.IsZero() || !pidFileBehind(home, changed) {
@@ -465,13 +433,6 @@ func KeepCodexDaemonCurrent(ctx context.Context, home string, changed time.Time)
 		return c
 	}
 	c.Behind, c.Since, c.Attached = true, since, codexClients(ps, home)
-	if c.Attached > 0 || !codexRestarting.TryLock() {
-		return c
-	}
-	defer codexRestarting.Unlock()
-	if c.Err = restartCodexDaemon(ctx, home); c.Err == nil {
-		c.Restarted = true
-	}
 	return c
 }
 

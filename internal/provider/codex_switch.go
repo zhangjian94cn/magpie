@@ -346,7 +346,7 @@ func SwitchWhenSpent(ctx context.Context, agent string) (string, error) {
 	}
 	if agent == "codex" {
 		if was := CodexAppStale(); was != "" {
-			log.Printf("codex: the Codex app is still signed in to %s, and shows its limits, until its app-server is restarted once no Codex turn runs", was)
+			log.Printf("codex: the Codex app is still signed in to %s; refresh is pending until the user finishes all Codex tasks and refreshes from Codex; magpie did not restart it", was)
 		}
 	}
 	// the models the agent is offered are the new account's plan's

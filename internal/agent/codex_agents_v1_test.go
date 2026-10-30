@@ -263,7 +263,7 @@ func quietCodex(t *testing.T, running bool, daemon provider.CodexDaemonCheck) {
 
 // The V2 warning is joined with the restart advice, not put in its place: a
 // user who just switched models while Codex runs still needs "restart Codex"
-// (#1028 review point 2), and the app-server magpie restarted is still said.
+// (#1028 review point 2); even an old restart flag must not claim success.
 // Joined with a space, as notices are, so the GUI translates both.
 func TestCodexV2WarningJoinsRestart(t *testing.T) {
 	home, read := codexAgentsHome(t, "model = \"gpt-5.5\"\n\n[features]\nmulti_agent_v2 = true\n")
@@ -275,7 +275,7 @@ func TestCodexV2WarningJoinsRestart(t *testing.T) {
 		t.Fatalf("Codex running:\n%q\nwant\n%q", n, want)
 	}
 	quietCodex(t, true, provider.CodexDaemonCheck{Behind: true, Restarted: true})
-	if n, want := cx.Notice(), codexV1ConflictNotice.String()+" "+noticeCodexdaemon.String(); n != want {
-		t.Fatalf("app-server restarted:\n%q\nwant\n%q", n, want)
+	if n, want := cx.Notice(), codexV1ConflictNotice.String()+" "+codexRestartAll; n != want {
+		t.Fatalf("app-server pending:\n%q\nwant\n%q", n, want)
 	}
 }

@@ -1341,9 +1341,11 @@ const STALE_SHORT = {
 };
 function staleSaid(a) {
   const copies = a.staleCopies || [];
-  if (!copies.length || copies.some((c) => !STALE_HOW[c.kind])) return { text: t("Connected · takes effect once {agent} is reopened", { agent: a.name }) };
+  const pending = a.id === "codex" ? t("Pending refresh · finish all {agent} tasks first", { agent: a.name }) : "";
+  if (!copies.length || copies.some((c) => !STALE_HOW[c.kind])) return { text: pending || t("Connected · takes effect once {agent} is reopened", { agent: a.name }) };
   // each copy whole, with its start, for the hover where the words are cut
   const title = copies.map((c) => t(STALE_HOW[c.kind][0], { agent: a.name, when: ago(c.since), app: c.app || "" }).replace("{cmd}", STALE_HOW[c.kind][1] || "")).join("\n");
+  if (pending) return { text: pending, title };
   const kinds = new Set(copies.map((c) => c.kind + "\0" + (c.app || "")));
   if (kinds.size > 1) return { text: t("Connected · {n} copies of {agent} to reopen", { n: copies.length, agent: a.name }), title };
   return { text: t(STALE_SHORT[copies[0].kind], { agent: a.name, app: copies[0].app || "" }), title };
@@ -1406,7 +1408,7 @@ function connectLine(a, kind) {
   // until when, the hover (and the row opened) what is off till then
   if (a.appOut) {
     const o = a.appOut;
-    if (o.stuck) say(t("On magpie · quit and reopen the {agent} app to send", { agent: a.name }), "wait");
+    if (o.stuck) say(t("Pending refresh · finish all {agent} tasks first", { agent: a.name }), "wait");
     else if (o.until) say(t("On magpie until {when} · ChatGPT allowance used up", { when: resetClock(new Date(o.until)) }));
     else say(t("On magpie until the reset · ChatGPT allowance used up"));
     words.title = appOutSaid(a);
@@ -1946,53 +1948,22 @@ function desktopLongestLine() {
   return l;
 }
 
-// daemonRestart: the button that restarts Codex's background app-server
-// left on the old list, then shows the row as it is after
-function daemonRestart() {
-  const go = el("button", "ag-quiet accent", t("Restart"));
+// Codex refresh controls explain the user action and send no restart request.
+const CODEX_APP_REFRESH = "Finish all Codex tasks, then quit and reopen the Codex app yourself. magpie did not restart it.";
+const CODEX_DAEMON_REFRESH = "Finish all Codex tasks, then run {cmd} yourself. magpie did not restart it.";
+function codexRefreshButton(daemon) {
+  const go = el("button", "ag-quiet accent", t("Refresh instructions"));
   go.type = "button";
-  go.title = "codex app-server daemon restart";
-  go.onclick = async () => {
-    go.disabled = true;
-    go.classList.add("busy");
-    try {
-      await api("codex/daemon/restart", {});
-      state = await api("state");
-      renderAgents();
-      status(t("Codex's background service restarted"));
-    } catch (e) {
-      go.disabled = false;
-      go.classList.remove("busy");
-      status(e.message, "err");
-    }
-  };
+  const notice = daemon ? t(CODEX_DAEMON_REFRESH, { cmd: "codex app-server daemon restart" }) : t(CODEX_APP_REFRESH);
+  go.title = notice;
+  go.onclick = () => status(notice);
   return go;
 }
+function daemonRestart() { return codexRefreshButton(true); }
 
 const confirmRestart = (name, why) => confirmAction(t("Restart {agent}?", { agent: name }), why || t("magpie quits {agent} and opens it again, so it reads the new settings. Anything running in it stops.", { agent: name }), t("Restart"));
 
-// appReopen: ends the Codex app's app-server, not its window
-function appReopen(bundle) {
-  const go = el("button", "ag-quiet accent", t("Restart"));
-  go.type = "button";
-  go.title = bundle;
-  go.onclick = async () => {
-    if (!(await confirmRestart(t("The Codex app"), t("Only its app-server restarts, for the new settings; its window stays. A running turn stops.")))) return;
-    go.disabled = true;
-    go.classList.add("busy");
-    try {
-      await api("codex/app/reopen", { bundle });
-      state = await api("state");
-      renderAgents();
-      status(t("Codex app-server restarted"));
-    } catch (e) {
-      go.disabled = false;
-      go.classList.remove("busy");
-      status(e.message, "err");
-    }
-  };
-  return go;
-}
+function appReopen() { return codexRefreshButton(false); }
 
 // appOutSaid: why Codex is on magpie while its ChatGPT account is used up,
 // and what of the Codex app is off till the reset (the app turns its
@@ -2002,8 +1973,8 @@ function appOutSaid(a) {
   let s = o.user
     ? t("{user}'s ChatGPT allowance is used up, so magpie serves {agent}'s turns until it resets.", { user: o.user, agent: a.name })
     : t("{agent}'s ChatGPT allowance is used up, so magpie serves its turns until it resets.", { agent: a.name });
-  s += " " + t("Till then the {agent} app's ChatGPT side is off: its ChatGPT chats and projects, browser use (its Chrome control), cloud tasks, its usage meter and Log out. It all comes back on its own at the reset.", { agent: a.name });
-  if (o.stuck) s += " " + t("magpie couldn't restart the {agent} app's app-server: quit the app and open it again to send.", { agent: a.name });
+  s += " " + t("Till then the {agent} app's ChatGPT side is off: its ChatGPT chats and projects, browser use (its Chrome control), cloud tasks, its usage meter and Log out. At the reset, finish its tasks and refresh from Codex to restore it.", { agent: a.name });
+  if (o.stuck) s += " " + t("The {agent} app is pending refresh. Finish all its tasks, then quit and open it again yourself; magpie did not restart it.", { agent: a.name });
   return s + " " + t("Keep on ChatGPT (its sign-in's Always ChatGPT) leaves {agent} on its ChatGPT account instead: it shows its own limit message till the reset, and magpie no longer takes it over.", { agent: a.name });
 }
 
@@ -2029,6 +2000,7 @@ function keepChatGPT(a) {
 // appRestart: a desktop app running on what it read before magpie's last
 // change (agent.AppBehind) is quit and opened again
 function appRestart(a) {
+  if (a.id === "codex") return codexRefreshButton(false);
   const go = el("button", "ag-fix ag-restart");
   go.type = "button";
   go.title = t("{agent} started {when}, before magpie's last change, and reads it only as it starts", { agent: a.name, when: ago(a.appRestart.since) });
@@ -2085,7 +2057,7 @@ function connectPanel(a, { fields, fieldBtn }) {
     if (staleNow(a)) {
       const w = line();
       w.classList.add("ag-warn");
-      w.append(el("span", "ag-dot"), el("span", "", t(a.stale === 1 ? "1 running {agent} still has the old list" : "{n} running {agent} still have the old list", { n: a.stale, agent: a.name })));
+      w.append(el("span", "ag-dot"), el("span", "", t(a.id === "codex" ? "Pending refresh · finish all {agent} tasks first" : a.stale === 1 ? "1 running {agent} still has the old list" : "{n} running {agent} still have the old list", { n: a.stale, agent: a.name })));
       const later = el("button", "ag-quiet", t("Got it"));
       later.type = "button";
       later.onclick = () => { staleSeen[a.id] = a.stale; renderAgents(); };
@@ -2100,11 +2072,9 @@ function connectPanel(a, { fields, fieldBtn }) {
         const [pre, post] = t(how[0], { agent: a.name, when: ago(c.since), app: c.app || "" }).split("{cmd}");
         const l = line(pre, ...(how[1] ? [code(how[1]), post || ""] : []));
         l.classList.add("ag-stale-copy");
-        // Codex's daemon, which magpie restarts itself while no codex
-        // session is on it: with one on, here, when the user says (open
-        // sessions of Codex 0.162 reconnect to the new one)
+        // Only instructions: Codex owns both desktop and daemon restarts.
         if (c.kind === "daemon" && a.id === "codex") l.append(daemonRestart());
-        if (c.kind === "app" && a.id === "codex" && c.bundle) l.append(appReopen(c.bundle));
+        if (c.kind === "app" && a.id === "codex" && c.bundle) l.append(appReopen());
         parts.push(l);
       }
     }
@@ -13431,33 +13401,24 @@ function renderAccounts(a, p) {
   return list;
 }
 
-// renderCodexDaemon: Codex's background app-server, on the account before a
-// switch (user); a restart ends its sessions, so only on a press
+// Account notices keep the old-account evidence until acknowledged or refreshed.
 function renderCodexDaemon(user) {
   const box = codexNote("", t("Codex's background service is still signed in as {user}", { user }),
-    t("Restart it to use the new account. Running Codex sessions will be interrupted."));
+    t(CODEX_DAEMON_REFRESH, { cmd: "codex app-server daemon restart" }));
   const later = el("button", "text", t("Later"));
   later.onclick = () => accountAction("codex/daemon/dismiss", {});
-  const go = el("button", "text primary", t("Restart"));
-  go.title = "codex app-server daemon restart";
-  go.onclick = () => { go.classList.add("busy"); accountAction("codex/daemon/restart", {}, t("Codex's background service restarted")); };
-  box.append(later, go);
+  box.append(later, daemonRestart());
   return box;
 }
 
-// renderCodexApp: the Codex app, on the account before a switch (user) till
-// its app-server restarts; Restart does it now, asked first (nb5p_hQ on X)
+// The old account remains visible until Codex refreshes or it is acknowledged.
 function renderCodexApp(user) {
   const box = codexNote("", t("The Codex app is still signed in as {user}", { user }),
-    t("It shows that account's usage limits until it is quit and opened again. Quit it and open it again to use the new account."));
+    t(CODEX_APP_REFRESH));
   const ok = el("button", "text", t("Got it"));
   ok.onclick = () => accountAction("codex/daemon/dismiss-app", {});
-  const go = el("button", "text primary", t("Restart"));
-  go.onclick = async () => {
-    if (!(await confirmRestart(t("The Codex app"), t("Its app-server restarts and signs in to the new account; its window stays. A running turn stops.")))) return;
-    go.classList.add("busy");
-    accountAction("codex/daemon/restart-app", {}, t("Codex app-server restarted"), true, tNotice);
-  };
+  const go = el("button", "text primary", t("Refresh instructions"));
+  go.onclick = () => status(t(CODEX_APP_REFRESH), "info");
   box.append(ok, go);
   return box;
 }

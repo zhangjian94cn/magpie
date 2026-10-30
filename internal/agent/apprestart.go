@@ -25,8 +25,7 @@ import (
 // runs on what it read before magpie's last change, its Agents row offers
 // a Restart. magpie never restarts one unasked: the button asks first, in
 // magpie's own dialog, and only then quits the app as its own Quit does
-// and opens it again. The Codex app on macOS has its own Restart on its
-// stale-copy line (codex_app.go), behind the same question.
+// and opens it again. Codex's controls only explain a user-initiated refresh.
 
 // restartable is how one such app is found running: its macOS bundle (an
 // id and the names it is installed under), and on Windows its executable's
@@ -296,6 +295,9 @@ func restartErr(n notice, a *Agent) error { return errors.New(n.say("agent", a.N
 // a second time. Windows: its windows are asked to close; an app still
 // running then (Electron apps stay in the tray) is ended with its tree.
 func (a *Agent) RestartApp(ctx context.Context) error {
+	if a.ID == "codex" {
+		return provider.RestartCodexApp(ctx, "")
+	}
 	r, ok := restartApps[a.ID]
 	if !ok || a.WSL != "" {
 		return restartErr(noticeRestartNotHere, a)
@@ -409,7 +411,7 @@ func waitGone(ctx context.Context, r restartable, limit time.Duration) bool {
 }
 
 // reopenBundle quits the app at bundle, as ⌘Q does, waits for every
-// process under it to end and opens it again (codex_app.go's way).
+// process under it to end and opens it again.
 func reopenBundle(ctx context.Context, a *Agent, bundle string) error {
 	if err := appQuit(ctx, bundle); err != nil {
 		return restartErr(noticeRestartAsk, a)

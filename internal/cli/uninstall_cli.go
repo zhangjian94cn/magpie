@@ -97,7 +97,7 @@ func uninstallCmd(args []string) error {
 		}
 	}
 	if r.CodexApp {
-		fmt.Println(amber.Render("!"), "the Codex app is still on what it read before: quit it and open it again")
+		fmt.Println(amber.Render("!"), "Codex refresh is pending: finish all Codex tasks, then quit and open it yourself; magpie did not restart it")
 	}
 	if r.Exe != "" {
 		fmt.Println(muted.Render("  magpie itself is left at " + r.Exe + ": delete it to finish"))

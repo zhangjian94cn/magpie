@@ -42,9 +42,12 @@ func fakes(t *testing.T, list []*agent.Agent, isWired map[string]bool, failing m
 	}
 	endFailover = func() (bool, error) { did = append(did, "failover"); return true, nil }
 	portRollouts = func(time.Duration) { did = append(did, "rollouts") }
-	restartCodexApp = func(context.Context, time.Duration) (int, bool, error) {
+	restartCodexApp = func(_ context.Context, wait time.Duration) (int, bool, error) {
+		if wait != 0 {
+			t.Fatal("uninstall waited for guessed Codex idleness")
+		}
 		did = append(did, "codex app")
-		return 1, false, nil
+		return 0, false, nil
 	}
 	step := func(name string) func() error {
 		return func() error { did = append(did, name); return nil }
@@ -76,7 +79,7 @@ func gone(t *testing.T, p string) bool {
 
 // Uninstalling stops the service before anything else (one still serving
 // would wire agents again), disconnects only the agents magpie is in,
-// restarts the Codex app's app-server when Codex was one of them, and
+// checks whether Codex needs a user-initiated refresh, and
 // removes magpie's files last.
 func TestRunOrder(t *testing.T) {
 	codex := &agent.Agent{ID: "codex", Name: "Codex"}
@@ -129,8 +132,7 @@ func TestRunSaysWhatFailed(t *testing.T) {
 	}
 }
 
-// A Codex turn still running past the wait leaves the app-server alone,
-// and the report tells the user to reopen the app.
+// A pending Codex refresh is reported without authorizing a restart.
 func TestRunCodexAppLeft(t *testing.T) {
 	codex := &agent.Agent{ID: "codex", Name: "Codex"}
 	fakes(t, []*agent.Agent{codex}, map[string]bool{"codex": true}, nil)

@@ -93,10 +93,6 @@ var (
 	disconnectOne  = disconnect
 )
 
-// codexAppWait is how long Run waits for a running Codex turn to end
-// before it restarts the Codex app's app-server.
-var codexAppWait = 30 * time.Second
-
 // Connected are the agents magpie is in now, which Run disconnects.
 func Connected() []*agent.Agent {
 	var out []*agent.Agent
@@ -128,8 +124,8 @@ func Agents(ctx context.Context, r *Report) {
 	// the threads Codex ran on magpie's models open without magpie
 	portRollouts(10 * time.Second)
 	if codex {
-		// the Codex app read the old config as its app-server started
-		if _, left, err := restartCodexApp(ctx, codexAppWait); left || err != nil {
+		// Only report the old config: uninstall must not end Codex tasks.
+		if _, left, err := restartCodexApp(ctx, 0); left || err != nil {
 			r.CodexApp = true
 		}
 	}

@@ -45,8 +45,7 @@ func TestCodexAdviceNamesTheSharedAppServer(t *testing.T) {
 // attach to was started before, on the official config. Said after a
 // change (the GUI's and the CLI's), the advice first checks that
 // app-server against magpie's change in this Codex's home: restarted by
-// magpie when no session is on it, named with the Agents page's Restart
-// when one is.
+// the user only after every task is finished; magpie only reports it.
 func TestCodexNoticeKeepsTheDaemonCurrent(t *testing.T) {
 	home, _ := codexHome(t, "", "")
 	dir := filepath.Join(home, ".codex")
@@ -81,12 +80,12 @@ func TestCodexNoticeKeepsTheDaemonCurrent(t *testing.T) {
 	if time.Since(changed) > time.Minute {
 		t.Fatalf("checked against %v, not magpie's change", changed)
 	}
-	if !strings.Contains(n, "magpie restarted") {
+	if !strings.Contains(n, "pending") || strings.Contains(n, "magpie restarted") {
 		t.Fatalf("restarted: %q", n)
 	}
 	// a session on it: the user is told where to restart it
 	answer = provider.CodexDaemonCheck{Behind: true, Attached: 1, Since: then}
-	if n := codex(home).Notice(); !strings.Contains(n, "Agents page") || !strings.Contains(n, provider.CodexDaemonRestart) {
+	if n := codex(home).Notice(); !strings.Contains(n, "Finish all Codex tasks") || !strings.Contains(n, provider.CodexDaemonRestart) {
 		t.Fatalf("session attached: %q", n)
 	}
 	// as last checked, for the row on Windows

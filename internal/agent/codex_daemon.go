@@ -20,14 +20,12 @@ import (
 // reaches no codex session started after it until the daemon restarts:
 // luci (Discord, Codex 0.162) took Codex off magpie, opened codex, which
 // started the daemon on Codex's own models, and after wiring Codex in
-// again every new codex showed the official list. With no codex session
-// attached magpie restarts it itself, right after the change and every
-// so often after (a session open then is one the user closes later);
-// with one attached the Agents page offers the restart.
+// again every new codex showed the official list. All observations now
+// remain pending refresh until the user finishes tasks and acts in Codex.
 
 // codexRestartAll is what is said after a change while copies of Codex
 // run that magpie leaves to the user.
-var codexRestartAll = newNotice("Codex builds its model list at start-up — restart the Codex app, open codex sessions and the app-server they share ({command}) to see this.").say("command", provider.CodexDaemonRestart)
+var codexRestartAll = noticeCodexBehind.say("command", provider.CodexDaemonRestart)
 
 // keepCodexDaemon is provider.KeepCodexDaemonCurrent; a var so tests can
 // see what is asked of it without a codex.
@@ -43,8 +41,7 @@ var codexDaemonSeen struct {
 }
 
 // codexDaemonCheck checks the daemon of the Codex whose config is path
-// against when magpie last changed what Codex reads at start, and
-// restarts it when no codex session is on it.
+// against when magpie last changed what Codex reads at start.
 func codexDaemonCheck(path string) provider.CodexDaemonCheck {
 	a := &Agent{ID: "codex", Path: path}
 	_, files, reads := a.startsWith()
@@ -65,10 +62,7 @@ func codexDaemonCheck(path string) provider.CodexDaemonCheck {
 // false when there is none behind it.
 func codexDaemonNotice(path string) (string, bool) {
 	c := codexDaemonCheck(path)
-	switch {
-	case c.Restarted:
-		return noticeCodexdaemon.String(), true
-	case c.Behind && c.Attached > 0:
+	if c.Behind {
 		return noticeCodexBehind.say("command", provider.CodexDaemonRestart), true
 	}
 	return "", false
@@ -78,9 +72,7 @@ func codexDaemonNotice(path string) (string, bool) {
 // daemon is behind, for the codex sessions on it to end.
 const codexDaemonEvery = 15 * time.Second
 
-// KeepCodexDaemonCurrent restarts this machine's Codex daemon whenever it
-// is behind what Codex reads at start and no codex session is on it,
-// until ctx ends. It looks again when magpie writes a file (what Codex
+// KeepCodexDaemonCurrent observes pending refresh until ctx ends. It looks again when magpie writes a file (what Codex
 // reads is among them), every so often while the daemon is behind, and
 // otherwise only now and then, for another process's write (#3185: a
 // look every 15s woke an idle magpie).
@@ -102,9 +94,7 @@ func KeepCodexDaemonCurrent(ctx context.Context) {
 		written = filememo.Written()
 		var c provider.CodexDaemonCheck
 		if _, err := os.Stat(path); err == nil {
-			if c = daemonCheck(path); c.Restarted {
-				log.Println("codex app-server: restarted, it had the model list from before", c.Since.Format(time.RFC3339))
-			}
+			c = daemonCheck(path)
 		}
 		every = codexDaemonNext(c)
 	}
@@ -143,8 +133,5 @@ func codexDaemonBehind() []StaleCopy {
 	return []StaleCopy{{Kind: "daemon", Since: c.Since}}
 }
 
-// what codexdaemon says after a change (notice.go)
-var (
-	noticeCodexBehind = newNotice("Codex builds its model list at start-up, and the app-server open codex sessions share started before this: restart it (Restart on magpie's Agents page, or {command}) and the Codex app to see this.")
-	noticeCodexdaemon = newNotice("magpie restarted the app-server codex sessions share, which none was on, so new codex sessions have this; restart the Codex app, if it is open, to see it there.")
-)
+// The same pending-refresh notice is used with and without attached clients.
+var noticeCodexBehind = newNotice("Codex refresh is pending. Finish all Codex tasks, then refresh the app or run {command} yourself; magpie did not restart it.")
