@@ -65,10 +65,6 @@ func TestCodexSwitchedWhenUsedUp(t *testing.T) {
 		codexApp.switched = false
 		codexApp.Unlock()
 	})
-	// the sign-ins above were the user's switches, as if taken already
-	codexApp.Lock()
-	codexApp.switched, codexApp.spent, codexApp.auto = false, false, false
-	codexApp.Unlock()
 	if to := switched(); to != "spare@example.com" {
 		t.Fatalf("switched to %q", to)
 	}
@@ -78,26 +74,6 @@ func TestCodexSwitchedWhenUsedUp(t *testing.T) {
 	codexApp.Unlock()
 	if !pending {
 		t.Fatal("the account switch isn't pending refresh for the Codex app")
-	}
-	// it is magpie's own: the Codex app is left running unless the user
-	// asked magpie to restart it (RestartApp; atom0964 on Discord)
-	codexApp.Lock()
-	auto := codexApp.auto
-	codexApp.Unlock()
-	if !auto {
-		t.Fatal("magpie's own switch is counted the user's: the Codex app would be restarted for it")
-	}
-	if codexRestartsApp() {
-		t.Fatal("the Codex app is restarted for magpie's own switches with RestartApp never set")
-	}
-	if err := SetRestartApp("codex", true); err != nil {
-		t.Fatal(err)
-	}
-	if !codexRestartsApp() {
-		t.Fatal("RestartApp set, and still not read")
-	}
-	if err := SetRestartApp("codex", false); err != nil {
-		t.Fatal(err)
 	}
 	var live codexAuth
 	readJSON(filepath.Join(home, ".codex", "auth.json"), &live)

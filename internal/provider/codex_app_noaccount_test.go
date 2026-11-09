@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
@@ -69,19 +68,28 @@ func TestCodexNoAccountSwitchRestartsNothing(t *testing.T) {
 	if got := step(); got != nil {
 		t.Fatalf("switched off a spent account on a provider that takes no account: ended %v", got)
 	}
-	// where Codex sends its requests changed: restarted as ever
+	// where Codex sends its requests changed: under the pending-refresh
+	// boundary nothing is ended; the app-server is marked pending refresh
 	s.route = "magpie,auth"
-	if got := step(); !slices.Equal(got, []int{60}) {
-		t.Fatalf("route changed: ended %v, want [60]", got)
+	if got := step(); got != nil {
+		t.Fatalf("route changed: ended %v, want none", got)
+	}
+	if !CodexAppBack() {
+		t.Fatal("route changed: the app-server isn't pending refresh")
 	}
 	// on a provider that takes the account a switch restarts it
 	noAccount = false
 	noteCodexSwitch("b@x", "c@x")
 	recheck()
-	if got := CodexAppStale(); got != "b@x" {
-		t.Fatalf("on a provider that takes the account: app left on %q, want b@x", got)
+	// the app-server never restarted (pending-refresh boundary): it is
+	// still the one that started on the first account
+	if got := CodexAppStale(); got != "a@x" {
+		t.Fatalf("on a provider that takes the account: app left on %q, want a@x", got)
 	}
-	if got := step(); !slices.Equal(got, []int{100}) {
-		t.Fatalf("switched on a provider that takes the account: ended %v, want [100]", got)
+	if got := step(); got != nil {
+		t.Fatalf("switched on a provider that takes the account: ended %v, want none", got)
+	}
+	if !CodexAppBack() {
+		t.Fatal("switched on a provider that takes the account: the app-server isn't pending refresh")
 	}
 }

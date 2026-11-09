@@ -169,6 +169,14 @@ var codexApp struct {
 	// switched: Codex's ChatGPT account changed since the app-servers were
 	// last listed (codexAppAccountSwitched)
 	switched bool
+	// crashSince/crashBy: the window after an app-server's end in which
+	// the app's logs are read for its error page (codex_app_crash.go).
+	// Under the pending-refresh boundary no end is made by magpie, so the
+	// watch never starts; the fields keep that file compiling.
+	crashSince, crashBy time.Time
+	// snag/snagPids: the app showed that page and wasn't reopened.
+	snag     bool
+	snagPids []int
 }
 
 // CodexAppStuck reports pending refresh through the existing status field.

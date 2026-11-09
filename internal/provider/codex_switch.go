@@ -507,7 +507,7 @@ func SwitchWhenSpent(ctx context.Context, agent string) (string, error) {
 		share, _ := loginSwitching(agent)
 		log.Printf("%s: %s has used %g%% or more of its allowance; signed it in to %s", agent, from, share, to)
 		if agent == "codex" {
-			codexAppSwitched(true, true)
+			codexAppSpentSwitch()
 		}
 	}
 	if agent == "codex" {
@@ -683,8 +683,10 @@ func restartCodexAppLeftOnSpent(ctx context.Context) {
 		codexDaemonMu.Lock()
 		codexAppLeftRestarted = left
 		codexDaemonMu.Unlock()
-		log.Printf("codex: the Codex app is still signed in to %s, which is used up; its app-server is restarted once no Codex turn runs, for the app to read the account Codex is signed in to", was)
-		codexAppSwitched(true, false)
+		// the pending-refresh boundary: the app-server is never restarted
+		// here; the app reads the account again once the user refreshes
+		log.Printf("codex: the Codex app is still signed in to %s, which is used up; refresh is pending until the user finishes all Codex tasks and refreshes from Codex; magpie did not restart it", was)
+		codexAppSpentSwitch()
 		return
 	}
 }

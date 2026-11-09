@@ -403,6 +403,10 @@ func TestKeepCodexDaemonCurrentDoesNotAttemptRestart(t *testing.T) {
 	}
 }
 
+// codexLinuxAppServer is the Linux Codex app's own app-server, as the
+// app runs it (chatgpt 26.1027, codex_app_server_test.go upstream).
+const codexLinuxAppServer = "/usr/lib/chatgpt/resources/codex -c features.code_mode_host=true app-server --analytics-default-enabled -c plugins.codex-app-tools@openai-bundled.mcp_servers.codex_app.enabled=true"
+
 func TestFindCodexApp(t *testing.T) {
 	// the ChatGPT app's own app-server, as ps listed it on the owner's Mac
 	// (ChatGPT 26.1007), beside a terminal codex and the managed daemon
